@@ -913,6 +913,9 @@ registry:
       - name: update_pull_request_branch
     secrets:
       - name: github.personal_access_token
+    auth:
+      provider: github
+      target: github.personal_access_token
     prompts: 0
     resources: {}
   armor-crypto:

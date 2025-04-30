@@ -9,6 +9,7 @@ import {
   Avatar,
   Badge,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Dialog,
@@ -32,7 +33,7 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ASSIGNED_SECRET_PLACEHOLDER,
   getUnsupportedSecretMessage,
@@ -44,8 +45,12 @@ import useDDInfo from '../../queries/useDDInfo';
 import { useSecrets } from '../../queries/useSecrets';
 import { CatalogItemRichened } from '../../types/catalog';
 import ConfigEditor from './ConfigEditor';
-import { isEmpty } from 'lodash-es';
+import { isEmpty, set } from 'lodash-es';
 import getCatalogIconPath from '../../utils/getCatalogIconPath';
+import useOAuthProvider from '../../queries/useOAuthProvider';
+import { derive } from '../../utils/OAuth';
+import { useQueryClient } from '@tanstack/react-query';
+import Secrets from '../../Secrets';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -91,22 +96,13 @@ const ConfigurationModal = ({
   // prop, which is the source of truth for the registration status of the item. This way, if the `item.registered` prop changes
   // (e.g., due to a successful registration or unregistration), the switch will reflect the correct state.
   const [toggled, setToggled] = useState(catalogItem.registered);
-
+  const { ddInfo, ddInfoLoading } = useDDInfo(client);
+  const inputRefs = useRef<HTMLInputElement[]>([]);
   const [localSecrets, setLocalSecrets] = useState<
     { [key: string]: string | undefined } | undefined
   >(undefined);
-
-  const inputRefs = useRef<HTMLInputElement[]>([]);
-
-  const theme = useTheme();
-
   const { isLoading: secretsLoading, mutate: mutateSecret } =
     useSecrets(client);
-  const { registerCatalogItem, unregisterCatalogItem } =
-    useCatalogOperations(client);
-  const { configLoading } = useConfig(client);
-
-  const { ddInfo, ddInfoLoading } = useDDInfo(client);
 
   useEffect(() => {
     setLocalSecrets(
@@ -119,6 +115,12 @@ const ConfigurationModal = ({
       ),
     );
   }, [catalogItem.secrets]);
+
+  const theme = useTheme();
+
+  const { registerCatalogItem, unregisterCatalogItem } =
+    useCatalogOperations(client);
+  const { configLoading } = useConfig(client);
 
   useEffect(() => {
     if (!catalogItem.canRegister) {
@@ -162,7 +164,7 @@ const ConfigurationModal = ({
   };
 
   const contributesNoConfigOrSecrets =
-    isEmpty(catalogItem.configSchema) && isEmpty(catalogItem.secrets);
+    isEmpty(catalogItem.configSchema) && isEmpty(catalogItem.secrets); // TODO(rumpl): add oauth
 
   if (secretsLoading || registryLoading || configLoading || !localSecrets) {
     return null;
@@ -222,12 +224,7 @@ const ConfigurationModal = ({
               />
             </span>
           </Tooltip>
-          {catalogItem.missingConfig && (
-            <Chip label="Requires parameters" color="warning" />
-          )}
-          {catalogItem.missingSecrets && (
-            <Chip label="Requires secrets" color="warning" />
-          )}
+          <Chips item={catalogItem} />
         </Stack>
       </DialogTitle>
       <IconButton
@@ -282,17 +279,11 @@ const ConfigurationModal = ({
                 />
                 {!contributesNoConfigOrSecrets && (
                   <Tab
-                    disabled={contributesNoConfigOrSecrets}
                     label={
                       <Badge
                         invisible={catalogItem.canRegister}
                         sx={{ pl: 1, pr: 1 }}
                         variant="dot"
-                        badgeContent={
-                          catalogItem.config && catalogItem.config.length > 0
-                            ? 'Secrets'
-                            : 'Config'
-                        }
                         color="error"
                       >
                         <Typography
@@ -493,6 +484,11 @@ const ConfigurationModal = ({
                             );
                           })}
                       </Stack>
+                      <Authorization
+                        client={client}
+                        item={catalogItem}
+                        image={image}
+                      />
                     </Stack>
                   )}
                 </Stack>
@@ -504,5 +500,114 @@ const ConfigurationModal = ({
     </Dialog>
   );
 };
+
+function Chips({ item }: { item: CatalogItemRichened }) {
+  const config = item.missingConfig;
+  const secrets =
+    (item.missingSecrets &&
+      item.auth !== undefined &&
+      item.missingAuthorization) ||
+    item.auth === undefined;
+  const auth =
+    item.auth !== undefined && item.missingAuthorization && item.missingSecrets;
+
+  return (
+    <>
+      {secrets && <Chip label="Requires secrets" color="warning" />}
+      {config && <Chip label="Requires configuration" color="warning" />}
+      {auth && <Chip label="Requires authorization" color="warning" />}
+    </>
+  );
+}
+
+function Authorization({
+  client,
+  item,
+  image,
+}: {
+  item: CatalogItemRichened;
+  client: v1.DockerDesktopClient;
+  image: string | undefined;
+}) {
+  const [working, setWorking] = useState(false);
+  const queryClient = useQueryClient();
+  const { authorizeOAuthProvider, unauthorizeOAuthProvider } =
+    useOAuthProvider(client);
+
+  useEffect(() => {
+    function deriveSecret(e: any) {
+      derive(client, `oauth2_${e.detail.app}`, item.auth?.target || '');
+
+      queryClient.invalidateQueries({ queryKey: ['catalog'] });
+    }
+
+    document.addEventListener('oauth-event', deriveSecret);
+    return () => {
+      document.removeEventListener('oauth-event', deriveSecret);
+    };
+  }, [item]);
+
+  if (item.auth === undefined) {
+    return null;
+  }
+
+  const unauthorize = useCallback(
+    async (target: string, provider: string) => {
+      setWorking(true);
+      await Secrets.deleteSecret(client, `oauth2_${target}`);
+
+      await unauthorizeOAuthProvider(provider).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['catalog'] });
+      });
+      setWorking(false);
+    },
+    [item],
+  );
+
+  return (
+    <Stack spacing={1}>
+      <Typography variant="subtitle2">OAuth</Typography>
+      <Box sx={{ flexGrow: 1 }}>
+        <Stack direction="row" spacing={1} width={'100%'} alignItems="center">
+          {item.icon && (
+            <Avatar
+              variant="square"
+              src={image}
+              alt={item.name}
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 1,
+              }}
+            />
+          )}
+
+          <Typography variant="subtitle2">{item.title}</Typography>
+
+          {item.missingAuthorization && (
+            <Button
+              variant="outlined"
+              onClick={() => authorizeOAuthProvider(item.auth?.provider || '')}
+            >
+              Authorize
+            </Button>
+          )}
+
+          {!item.missingAuthorization && (
+            <Button
+              variant="outlined"
+              onClick={() =>
+                unauthorize(item.auth?.target || '', item.auth?.provider || '')
+              }
+            >
+              Unauthorize
+            </Button>
+          )}
+          {working && <CircularProgress size={16} sx={{ ml: 1 }} />}
+        </Stack>
+      </Box>
+    </Stack>
+  );
+}
 
 export default ConfigurationModal;

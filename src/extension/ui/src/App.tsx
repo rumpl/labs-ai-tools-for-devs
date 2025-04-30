@@ -20,7 +20,7 @@ export function App() {
   const config = useConfig(client);
   const secrets = useSecrets(client);
   const mcpClient = useMCPClient(client);
-
+ 
   // Create a memoized callback for syncing registry with config we can call later
   const syncRegistry = useCallback(async () => {
     if (config.config && catalogAll.registryItems) {

@@ -28,9 +28,9 @@ const OAuthProviders = ({ client }: { client: v1.DockerDesktopClient }) => {
             {data.map((provider: OAuthClient) => {
                 return <Card>
                     <CardHeader title={provider.app} action={provider.authorized ? <Button variant="contained" color="error" onClick={() => {
-                        unauthorizeOAuthProvider.mutateAsync(provider.app);
+                        unauthorizeOAuthProvider(provider.app);
                     }}>Unauthorize</Button> : <Button variant="contained" color="success" onClick={() => {
-                        authorizeOAuthProvider.mutateAsync(provider.app);
+                        authorizeOAuthProvider(provider.app);
                     }}>Authorize</Button>} />
                     <CardContent>
                         <Stack direction="row" alignItems="center" spacing={1}>

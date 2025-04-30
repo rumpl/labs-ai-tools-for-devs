@@ -9,6 +9,10 @@ export interface CatalogItem {
   source?: string;
   icon?: string;
   secrets?: { name: string }[];
+  auth?: {
+    provider: string;
+    target: string;
+  };
   ref: string;
   prompts: number;
   resources: object[];
@@ -38,5 +42,6 @@ export interface CatalogItemRichened extends CatalogItem {
   canRegister: boolean;
   missingConfig: boolean;
   missingSecrets: boolean;
+  missingAuthorization: boolean;
   configTemplate: { [key: string]: any };
 }

@@ -24,7 +24,7 @@ const useDDInfo = (client: v1.DockerDesktopClient) => {
       const baseVersion = JSON.parse(result.stdout);
       const parsedVersion = parseDDVersion(baseVersion.Server.Platform.Name);
       const hasSecretSupport =
-        parsedVersion.build >= DD_BUILD_WITH_SECRET_SUPPORT;
+        parsedVersion.build >= DD_BUILD_WITH_SECRET_SUPPORT || true;
 
       return {
         ...baseVersion,

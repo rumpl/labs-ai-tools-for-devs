@@ -15,6 +15,7 @@ import {
   useConfig,
 } from './useConfig';
 import { useSecrets } from './useSecrets';
+import useOAuthProvider from './useOAuthProvider';
 
 const STORAGE_KEYS = {
   catalog: 'docker-catalog-catalog',
@@ -26,6 +27,7 @@ function useCatalog(client: v1.DockerDesktopClient) {
   const { data: secrets, isLoading: secretsLoading } = useSecrets(client);
   const { registryItems, registryLoading } = useRegistry(client);
   const { config, configLoading: configLoading } = useConfig(client);
+  const { data: providers } = useOAuthProvider(client);
 
   const enrichCatalogItem = useCallback(
     (item: CatalogItemWithName): CatalogItemRichened => {
@@ -56,6 +58,11 @@ function useCatalog(client: v1.DockerDesktopClient) {
       const missingASecret = secretsWithAssignment.some(
         (secret) => !secret.assigned,
       );
+
+      const missingAuthorization = providers?.some((p) => {
+        return p.app === item.auth?.provider && !p.authorized;
+      });
+
       const enrichedItem: CatalogItemRichened = {
         ...item,
         secrets: secretsWithAssignment,
@@ -64,13 +71,15 @@ function useCatalog(client: v1.DockerDesktopClient) {
         configTemplate,
         missingConfig,
         missingSecrets: missingASecret,
+        missingAuthorization: missingAuthorization || false,
         registered: !!registryItems?.[item.name],
-        canRegister: !missingASecret && !missingConfig,
+        canRegister:
+          (!missingAuthorization || !missingASecret) && !missingConfig,
         name: item.name,
       };
       return enrichedItem;
     },
-    [secrets, config, registryItems],
+    [secrets, config, registryItems, providers],
   );
 
   const { data: catalogItems = [], isLoading: catalogLoading } = useQuery({
@@ -112,6 +121,7 @@ function useCatalog(client: v1.DockerDesktopClient) {
     secretsLoading,
     configLoading,
     registryLoading,
+    providers,
     queryClient,
   ]);
 
@@ -127,8 +137,6 @@ function useCatalog(client: v1.DockerDesktopClient) {
       }
       return null;
     },
-    staleTime: Infinity,
-    gcTime: 0,
   });
 
   return {
